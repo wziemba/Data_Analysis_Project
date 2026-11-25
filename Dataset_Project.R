@@ -5,6 +5,7 @@ library(dplyr)
 library(tibble)
 library(DataExplorer)
 library(survey)
+library(broom)
 
 load("NSDUH_2024.RData")
 
@@ -148,3 +149,56 @@ fit_ya_mde <- svyglm(
   family = quasibinomial()
 )
 summary(fit_ya_mde)
+
+ya_spd_gad_df <- cohort_mh %>%
+  filter(
+    dev_stage == "Young Adult (18-29)",
+    !is.na(use_group),
+    !is.na(ad_spd_py),
+    !is.na(ad_gad_score)
+  )
+
+# Quick summary of both outcomes by substance use group
+ya_spd_gad_df %>%
+  group_by(use_group) %>%
+  summarise(
+    n = n(),
+    spd_rate = mean(ad_spd_py, na.rm = TRUE),
+    mean_gad_score = mean(ad_gad_score, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  print()
+
+# Survey design for Young Adults (18-29)
+des_ya_spd_gad <- svydesign(
+  ids = ~VEREP,
+  strata = ~VESTR_C,
+  weights = ~ANALWT2_C,
+  data = ya_spd_gad_df,
+  nest = TRUE
+)
+
+# Weighted logistic model for past-year Serious Psychological Distress (ad_spd_py)
+fit_ya_spd <- svyglm(
+  ad_spd_py ~ use_group + age_group + sex_f + race_f + health_f + educ_f,
+  design = des_ya_spd_gad,
+  family = quasibinomial()
+)
+summary(fit_ya_spd)
+
+# Adjusted Odds Ratios + 95% CIs for substance use groups on SPD
+tidy(fit_ya_spd, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(str_starts(term, "use_group")) %>%
+  print()
+
+# Weighted linear model for Adult GAD-7 anxiety score (ad_gad_score, 0-21)
+fit_ya_gad <- svyglm(
+  ad_gad_score ~ use_group + age_group + sex_f + race_f + health_f + educ_f,
+  design = des_ya_spd_gad,
+  family = gaussian()
+)
+summary(fit_ya_gad)
+
+tidy(fit_ya_gad, conf.int = TRUE) %>%
+  filter(str_starts(term, "use_group")) %>%
+  print()
